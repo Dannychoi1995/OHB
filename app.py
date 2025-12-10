@@ -329,6 +329,123 @@ def init_database():
             ("batch_id", "batches", "id")
         ])
     
+    # Create purchase_orders table (POs to suppliers)
+    if "purchase_orders" not in db.table_names():
+        db["purchase_orders"].create({
+            "id": int,
+            "po_number": str,
+            "supplier_name": str,
+            "order_date": str,
+            "status": str,  # draft, ordered, received, cancelled
+            "notes": str,
+            "total_amount": float
+        }, pk="id")
+    
+    # Create purchase_order_items table (line items for POs)
+    if "purchase_order_items" not in db.table_names():
+        db["purchase_order_items"].create({
+            "id": int,
+            "po_id": int,
+            "item_type": str,  # 'inventory' or 'bulk_spirit'
+            "item_id": int,
+            "item_name": str,
+            "quantity": float,
+            "unit_cost": float,
+            "total_cost": float,
+            "received_quantity": float
+        }, pk="id", foreign_keys=[
+            ("po_id", "purchase_orders", "id")
+        ])
+    
+    # Create inventory_cost_batches table (FIFO cost tracking for inventory items)
+    if "inventory_cost_batches" not in db.table_names():
+        db["inventory_cost_batches"].create({
+            "id": int,
+            "inventory_item_id": int,
+            "po_id": int,
+            "receipt_date": str,
+            "quantity_received": float,
+            "quantity_remaining": float,
+            "unit_cost": float,
+            "supplier": str,
+            "batch_number": str
+        }, pk="id", foreign_keys=[
+            ("inventory_item_id", "inventory_tracking", "id"),
+            ("po_id", "purchase_orders", "id")
+        ])
+    
+    # Create bulk_spirit_cost_batches table (FIFO cost tracking for bulk spirits)
+    if "bulk_spirit_cost_batches" not in db.table_names():
+        db["bulk_spirit_cost_batches"].create({
+            "id": int,
+            "bulk_spirit_id": int,
+            "po_id": int,
+            "receipt_date": str,
+            "weight_lbs": float,
+            "weight_remaining": float,
+            "wine_gallons": float,
+            "gallons_remaining": float,
+            "cost_per_gallon": float,
+            "cost_per_lb": float,
+            "total_cost": float,
+            "supplier": str
+        }, pk="id", foreign_keys=[
+            ("bulk_spirit_id", "bulk_spirits", "id"),
+            ("po_id", "purchase_orders", "id")
+        ])
+    
+    # Create invoices table (customer invoices)
+    if "invoices" not in db.table_names():
+        db["invoices"].create({
+            "id": int,
+            "invoice_number": str,
+            "invoice_date": str,
+            "customer_name": str,
+            "due_date": str,
+            "status": str,  # draft, sent, paid, cancelled
+            "subtotal": float,
+            "tax_amount": float,
+            "total_amount": float,
+            "payment_date": str,
+            "notes": str
+        }, pk="id")
+    
+    # Create invoice_items table (line items for invoices)
+    if "invoice_items" not in db.table_names():
+        db["invoice_items"].create({
+            "id": int,
+            "invoice_id": int,
+            "finished_good_id": int,
+            "product_name": str,
+            "quantity_cases": float,
+            "unit_price": float,
+            "cogs_per_case": float,
+            "line_total": float,
+            "line_cogs": float,
+            "line_profit": float
+        }, pk="id", foreign_keys=[
+            ("invoice_id", "invoices", "id"),
+            ("finished_good_id", "finished_goods", "id")
+        ])
+    
+    # Create sample_distributions table (enhanced sample tracking)
+    if "sample_distributions" not in db.table_names():
+        db["sample_distributions"].create({
+            "id": int,
+            "distribution_date": str,
+            "finished_good_id": int,
+            "product_name": str,
+            "quantity_units": int,
+            "quantity_cases": float,
+            "recipient_name": str,
+            "recipient_type": str,  # trade, media, internal, marketing
+            "event_name": str,
+            "cogs_amount": float,
+            "notes": str
+        }, pk="id", foreign_keys=[
+            ("finished_good_id", "finished_goods", "id")
+        ])
+    
     return db
 
 def remove_duplicates(db):
@@ -1225,10 +1342,252 @@ def migrate_database(db):
             db.execute("ALTER TABLE order_items ADD COLUMN unit_price REAL DEFAULT 0.0")
         if "line_total" not in columns:
             db.execute("ALTER TABLE order_items ADD COLUMN line_total REAL DEFAULT 0.0")
+    
+    # Migrate inventory_tracking table - add cost tracking columns
+    if "inventory_tracking" in db.table_names():
+        inventory_table = db["inventory_tracking"]
+        columns = [col.name for col in inventory_table.columns]
+        
+        if "avg_cost_per_unit" not in columns:
+            db.execute("ALTER TABLE inventory_tracking ADD COLUMN avg_cost_per_unit REAL DEFAULT 0.0")
+        if "total_cost_value" not in columns:
+            db.execute("ALTER TABLE inventory_tracking ADD COLUMN total_cost_value REAL DEFAULT 0.0")
+    
+    # Migrate bulk_spirits table - add cost tracking columns
+    if "bulk_spirits" in db.table_names():
+        bulk_spirits_table = db["bulk_spirits"]
+        columns = [col.name for col in bulk_spirits_table.columns]
+        
+        if "avg_cost_per_gallon" not in columns:
+            db.execute("ALTER TABLE bulk_spirits ADD COLUMN avg_cost_per_gallon REAL DEFAULT 0.0")
+        if "total_cost_value" not in columns:
+            db.execute("ALTER TABLE bulk_spirits ADD COLUMN total_cost_value REAL DEFAULT 0.0")
+    
+    # Migrate finished_goods table - add cost tracking columns
+    if "finished_goods" in db.table_names():
+        finished_goods_table = db["finished_goods"]
+        columns = [col.name for col in finished_goods_table.columns]
+        
+        if "cost_per_case" not in columns:
+            db.execute("ALTER TABLE finished_goods ADD COLUMN cost_per_case REAL DEFAULT 0.0")
+        if "total_cogs" not in columns:
+            db.execute("ALTER TABLE finished_goods ADD COLUMN total_cogs REAL DEFAULT 0.0")
+    
+    # Migrate production_history table - add cost tracking columns
+    if "production_history" in db.table_names():
+        production_history_table = db["production_history"]
+        columns = [col.name for col in production_history_table.columns]
+        
+        if "material_costs" not in columns:
+            db.execute("ALTER TABLE production_history ADD COLUMN material_costs REAL DEFAULT 0.0")
+        if "labor_cost" not in columns:
+            db.execute("ALTER TABLE production_history ADD COLUMN labor_cost REAL DEFAULT 0.0")
+        if "overhead_cost" not in columns:
+            db.execute("ALTER TABLE production_history ADD COLUMN overhead_cost REAL DEFAULT 0.0")
+        if "total_cogs" not in columns:
+            db.execute("ALTER TABLE production_history ADD COLUMN total_cogs REAL DEFAULT 0.0")
+        if "cogs_per_case" not in columns:
+            db.execute("ALTER TABLE production_history ADD COLUMN cogs_per_case REAL DEFAULT 0.0")
 
 def get_db():
     """Get database connection"""
     return sqlite_utils.Database(DB_PATH)
+
+def calculate_fifo_cost(cost_batches, quantity_needed):
+    """
+    Calculate cost using FIFO method and update remaining quantities.
+    
+    Args:
+        cost_batches: List of cost batch records sorted by receipt_date (oldest first)
+        quantity_needed: Quantity to consume
+        
+    Returns:
+        dict: {
+            'total_cost': Total cost for quantity consumed,
+            'avg_cost_per_unit': Average cost per unit,
+            'batches_updated': List of batch IDs and quantities consumed
+        }
+    """
+    total_cost = 0.0
+    remaining_needed = quantity_needed
+    batches_updated = []
+    
+    for batch in cost_batches:
+        if remaining_needed <= 0:
+            break
+            
+        batch_remaining = batch.get("quantity_remaining", 0.0)
+        if batch_remaining <= 0:
+            continue
+            
+        # How much can we take from this batch
+        quantity_from_batch = min(batch_remaining, remaining_needed)
+        
+        # Calculate cost from this batch
+        unit_cost = batch.get("unit_cost", 0.0)
+        cost_from_batch = quantity_from_batch * unit_cost
+        
+        total_cost += cost_from_batch
+        remaining_needed -= quantity_from_batch
+        
+        batches_updated.append({
+            'batch_id': batch['id'],
+            'quantity_consumed': quantity_from_batch,
+            'new_remaining': batch_remaining - quantity_from_batch
+        })
+    
+    avg_cost_per_unit = total_cost / quantity_needed if quantity_needed > 0 else 0.0
+    
+    return {
+        'total_cost': total_cost,
+        'avg_cost_per_unit': avg_cost_per_unit,
+        'batches_updated': batches_updated,
+        'quantity_unfulfilled': remaining_needed
+    }
+
+def calculate_fifo_cost_bulk_spirit(cost_batches, gallons_needed):
+    """
+    Calculate cost using FIFO method for bulk spirits (by gallons).
+    
+    Args:
+        cost_batches: List of bulk spirit cost batch records sorted by receipt_date
+        gallons_needed: Wine gallons to consume
+        
+    Returns:
+        dict: {
+            'total_cost': Total cost for gallons consumed,
+            'avg_cost_per_gallon': Average cost per gallon,
+            'batches_updated': List of batch IDs and gallons consumed
+        }
+    """
+    total_cost = 0.0
+    remaining_needed = gallons_needed
+    batches_updated = []
+    
+    for batch in cost_batches:
+        if remaining_needed <= 0:
+            break
+            
+        batch_remaining = batch.get("gallons_remaining", 0.0)
+        if batch_remaining <= 0:
+            continue
+            
+        # How much can we take from this batch
+        gallons_from_batch = min(batch_remaining, remaining_needed)
+        
+        # Calculate cost from this batch
+        cost_per_gallon = batch.get("cost_per_gallon", 0.0)
+        cost_from_batch = gallons_from_batch * cost_per_gallon
+        
+        total_cost += cost_from_batch
+        remaining_needed -= gallons_from_batch
+        
+        # Also update weight remaining
+        weight_from_batch = 0.0
+        if batch_remaining > 0:
+            weight_proportion = gallons_from_batch / batch_remaining
+            weight_from_batch = batch.get("weight_remaining", 0.0) * weight_proportion
+        
+        batches_updated.append({
+            'batch_id': batch['id'],
+            'gallons_consumed': gallons_from_batch,
+            'weight_consumed': weight_from_batch,
+            'new_gallons_remaining': batch_remaining - gallons_from_batch,
+            'new_weight_remaining': batch.get("weight_remaining", 0.0) - weight_from_batch
+        })
+    
+    avg_cost_per_gallon = total_cost / gallons_needed if gallons_needed > 0 else 0.0
+    
+    return {
+        'total_cost': total_cost,
+        'avg_cost_per_gallon': avg_cost_per_gallon,
+        'batches_updated': batches_updated,
+        'gallons_unfulfilled': remaining_needed
+    }
+
+def get_avg_cost_inventory_item(db, item_id):
+    """
+    Calculate weighted average cost for an inventory item from all its cost batches.
+    
+    Args:
+        db: Database connection
+        item_id: Inventory item ID
+        
+    Returns:
+        float: Weighted average cost per unit
+    """
+    batches = list(db.execute(
+        "SELECT * FROM inventory_cost_batches WHERE inventory_item_id = ? AND quantity_remaining > 0 ORDER BY receipt_date",
+        [item_id]
+    ).fetchall())
+    
+    if not batches:
+        return 0.0
+    
+    total_quantity = 0.0
+    total_value = 0.0
+    
+    for batch in batches:
+        qty = batch.get("quantity_remaining", 0.0)
+        cost = batch.get("unit_cost", 0.0)
+        total_quantity += qty
+        total_value += (qty * cost)
+    
+    return total_value / total_quantity if total_quantity > 0 else 0.0
+
+def get_avg_cost_bulk_spirit(db, spirit_id):
+    """
+    Calculate weighted average cost for a bulk spirit from all its cost batches.
+    
+    Args:
+        db: Database connection
+        spirit_id: Bulk spirit ID
+        
+    Returns:
+        float: Weighted average cost per gallon
+    """
+    batches = list(db.execute(
+        "SELECT * FROM bulk_spirit_cost_batches WHERE bulk_spirit_id = ? AND gallons_remaining > 0 ORDER BY receipt_date",
+        [spirit_id]
+    ).fetchall())
+    
+    if not batches:
+        return 0.0
+    
+    total_gallons = 0.0
+    total_value = 0.0
+    
+    for batch in batches:
+        gallons = batch.get("gallons_remaining", 0.0)
+        cost = batch.get("cost_per_gallon", 0.0)
+        total_gallons += gallons
+        total_value += (gallons * cost)
+    
+    return total_value / total_gallons if total_gallons > 0 else 0.0
+
+def update_inventory_cost_values(db):
+    """Update avg_cost and total_cost_value for all inventory items based on FIFO batches"""
+    for item in db["inventory_tracking"].rows:
+        avg_cost = get_avg_cost_inventory_item(db, item["id"])
+        units_remaining = item.get("units_remaining", 0)
+        total_value = avg_cost * units_remaining
+        
+        db["inventory_tracking"].update(item["id"], {
+            "avg_cost_per_unit": avg_cost,
+            "total_cost_value": total_value
+        })
+
+def update_bulk_spirit_cost_values(db):
+    """Update avg_cost and total_cost_value for all bulk spirits based on FIFO batches"""
+    for spirit in db["bulk_spirits"].rows:
+        avg_cost = get_avg_cost_bulk_spirit(db, spirit["id"])
+        wine_gallons = spirit.get("wine_gallons", 0.0)
+        total_value = avg_cost * wine_gallons
+        
+        db["bulk_spirits"].update(spirit["id"], {
+            "avg_cost_per_gallon": avg_cost,
+            "total_cost_value": total_value
+        })
 
 def update_calculated_fields(db):
     """Update calculated fields across all tables"""
@@ -1471,10 +1830,14 @@ page = st.sidebar.radio(
         "🥃 Bulk Spirits",
         "🔄 Batches",
         "📦 Inventory Tracking",
+        "💰 Purchase Orders",
         "📋 Recipes",
         "⚙️ Production",
+        "📄 Invoices",
+        "🎁 Samples",
         "🔍 Physical Counts & Waste",
         "📈 Reports & Analytics",
+        "💵 Financial Reports",
         "💼 CRM/Sales"
     ],
     label_visibility="collapsed"
@@ -1519,33 +1882,70 @@ if page == "📊 Dashboard":
     
     # Financial metrics
     st.markdown("### Financial Overview (Last 30 Days)")
-    col1, col2, col3, col4 = st.columns(4)
+    
+    # Get paid invoices for the period
+    paid_invoices = list(db.execute(
+        "SELECT * FROM invoices WHERE status = 'paid' AND invoice_date >= ?", [last_30_days]
+    ).fetchall())
+    
+    total_revenue = sum([inv.get("subtotal", 0) for inv in paid_invoices])
+    total_invoice_cogs = 0.0
+    for inv in paid_invoices:
+        items = list(db.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", [inv["id"]]).fetchall())
+        total_invoice_cogs += sum([item.get("line_cogs", 0) for item in items])
+    
+    gross_profit = total_revenue - total_invoice_cogs
+    gross_margin = (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        # Revenue from shipped orders
-        shipped_orders = list(db["orders"].rows_where(
-            "status = 'Shipped' AND shipped_date >= ?", [last_30_days]
-        ))
-        total_revenue = sum([o.get("total_revenue", 0.0) for o in shipped_orders])
-        st.metric("💰 Revenue", f"${total_revenue:,.2f}", help="Revenue from shipped orders")
+        st.metric("💰 Revenue", f"${total_revenue:,.2f}", help="Revenue from paid invoices (last 30 days)")
     
     with col2:
-        # Cases sold
-        cases_sold = 0
-        for order in shipped_orders:
-            order_items = list(db["order_items"].rows_where("order_id = ?", [order["id"]]))
-            cases_sold += sum([item["quantity_cases"] for item in order_items])
-        st.metric("📦 Cases Sold", f"{cases_sold:,}", help="Total cases shipped")
+        st.metric("📊 COGS", f"${total_invoice_cogs:,.2f}", help="Cost of Goods Sold")
     
     with col3:
+        st.metric("💵 Gross Profit", f"${gross_profit:,.2f}", help="Revenue - COGS")
+    
+    with col4:
+        st.metric("📈 Gross Margin", f"{gross_margin:.1f}%", help="Gross profit as % of revenue")
+    
+    with col5:
         # Tax liability
         total_tax = sum([fg.get("excise_tax_due", 0.0) for fg in finished_goods])
         st.metric("🏛️ Tax Liability", f"${total_tax:,.2f}", help="Current excise tax liability")
     
+    # Inventory Value
+    st.markdown("### Inventory Valuation")
+    
+    # Update cost values
+    update_inventory_cost_values(db)
+    update_bulk_spirit_cost_values(db)
+    
+    # Calculate total inventory value
+    total_fg_value = 0.0
+    for fg in finished_goods:
+        total_cases = (fg["singles"] + fg["bottled_s"] * UNITS_PER_CASE + fg["bottled_i"] * UNITS_PER_CASE) / UNITS_PER_CASE
+        total_fg_value += total_cases * fg.get("cost_per_case", 0.0)
+    
+    bulk_spirits = list(db["bulk_spirits"].rows)
+    total_bs_value = sum([s.get("wine_gallons", 0) * s.get("avg_cost_per_gallon", 0) for s in bulk_spirits])
+    
+    inventory_items = list(db["inventory_tracking"].rows)
+    total_inv_value = sum([i.get("units_remaining", 0) * i.get("avg_cost_per_unit", 0) for i in inventory_items])
+    
+    total_inventory_value = total_fg_value + total_bs_value + total_inv_value
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🍾 Finished Goods", f"${total_fg_value:,.2f}", help="Total value of finished goods at cost")
+    with col2:
+        st.metric("🥃 Bulk Spirits", f"${total_bs_value:,.2f}", help="Total value of bulk spirits at cost")
+    with col3:
+        st.metric("📦 Materials", f"${total_inv_value:,.2f}", help="Total value of bottles, labels, etc.")
     with col4:
-        # Average order value
-        avg_order = total_revenue / len(shipped_orders) if shipped_orders else 0
-        st.metric("📊 Avg Order", f"${avg_order:,.2f}", help="Average order value")
+        st.metric("💰 Total Value", f"${total_inventory_value:,.2f}", help="Total inventory asset value")
     
     # Recent activity
     st.markdown("### Recent Activity")
@@ -1567,7 +1967,7 @@ if page == "📊 Dashboard":
                     "Product": p["finished_good_name"],
                     "Cases": p["cases_produced"]
                 })
-            st.dataframe(pd.DataFrame(prod_display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(prod_display), width="stretch", hide_index=True)
         else:
             st.info("No recent production")
     
@@ -1582,7 +1982,7 @@ if page == "📊 Dashboard":
                     "Status": o["status"],
                     "Value": f"${o.get('total_revenue', 0.0):,.2f}"
                 })
-            st.dataframe(pd.DataFrame(order_display), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(order_display), width="stretch", hide_index=True)
         else:
             st.info("No recent orders")
     
@@ -1599,7 +1999,7 @@ if page == "📊 Dashboard":
             })
     
     if low_stock_items:
-        st.dataframe(pd.DataFrame(low_stock_items), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(low_stock_items), width="stretch", hide_index=True)
     else:
         st.success("✅ All products are well stocked!")
     
@@ -1608,19 +2008,19 @@ if page == "📊 Dashboard":
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("📸 Create Inventory Snapshot", use_container_width=True):
+        if st.button("📸 Create Inventory Snapshot", width="stretch"):
             snapshot_month = create_monthly_snapshot(db)
             st.success(f"✅ Snapshot created for {snapshot_month}!")
             st.rerun()
     
     with col2:
-        st.button("⚙️ Record Production", use_container_width=True, key="goto_production")
+        st.button("⚙️ Record Production", width="stretch", key="goto_production")
     
     with col3:
-        st.button("💼 Create Order", use_container_width=True, key="goto_orders")
+        st.button("💼 Create Order", width="stretch", key="goto_orders")
     
     with col4:
-        st.button("📈 View Reports", use_container_width=True, key="goto_reports")
+        st.button("📈 View Reports", width="stretch", key="goto_reports")
 
 elif page == "🍾 Finished Goods":
     st.header("🍾 Finished Goods Inventory")
@@ -1708,7 +2108,7 @@ elif page == "🍾 Finished Goods":
         
         edited_df = st.data_editor(
             df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             num_rows="fixed",
             key="edit_finished_goods",
@@ -1727,7 +2127,7 @@ elif page == "🍾 Finished Goods":
             }
         )
         
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+        if st.button("💾 Save All Changes", type="primary", width="stretch"):
             for idx, row in edited_df.iterrows():
                 fg_id = int(row["ID"])
                 singles = int(row["Singles"])
@@ -1927,7 +2327,7 @@ elif page == "🥃 Bulk Spirits":
         
         edited_df = st.data_editor(
             df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             num_rows="fixed",
             key="edit_bulk_spirits",
@@ -1943,7 +2343,7 @@ elif page == "🥃 Bulk Spirits":
             }
         )
         
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+        if st.button("💾 Save All Changes", type="primary", width="stretch"):
             for idx, row in edited_df.iterrows():
                 spirit_id = int(row["ID"])
                 weight_lbs = float(row["Weight (lbs)"])
@@ -1991,7 +2391,7 @@ elif page == "🥃 Bulk Spirits":
                     "Batch #": r.get("batch_number", "—")
                 })
             
-            st.dataframe(pd.DataFrame(receipt_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(receipt_data), width="stretch", hide_index=True)
         else:
             st.info("No receipt history yet. Receipts are logged when you add new spirits.")
         
@@ -2185,7 +2585,7 @@ elif page == "🔄 Batches":
                         
                         if depletions_made:
                             st.markdown("**Bulk Spirit Depletions:**")
-                            st.dataframe(pd.DataFrame(depletions_made), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(depletions_made), width="stretch", hide_index=True)
                         
                         st.rerun()
     
@@ -2355,7 +2755,7 @@ elif page == "🔄 Batches":
             
             edited_df = st.data_editor(
                 df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 num_rows="fixed",
                 key="edit_batch_inventory",
@@ -2368,7 +2768,7 @@ elif page == "🔄 Batches":
                 }
             )
             
-            if st.button("💾 Save All Changes", type="primary", use_container_width=True, key="save_batch_inventory"):
+            if st.button("💾 Save All Changes", type="primary", width="stretch", key="save_batch_inventory"):
                 for idx, row in edited_df.iterrows():
                     batch_id = int(row["ID"])
                     gallons = float(row["Gallons"])
@@ -2409,7 +2809,7 @@ elif page == "🔄 Batches":
                         "Notes": log.get("notes", "—")[:30]
                     })
                 
-                st.dataframe(pd.DataFrame(log_data), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(log_data), width="stretch", hide_index=True)
             else:
                 st.info("No production history yet. Produce batches in the 'Produce Batch' tab.")
             
@@ -2488,7 +2888,7 @@ elif page == "📦 Inventory Tracking":
         # Use data_editor for spreadsheet-like editing
         edited_df = st.data_editor(
             df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             num_rows="fixed",
             key="edit_inventory_tracking",
@@ -2504,7 +2904,7 @@ elif page == "📦 Inventory Tracking":
         )
         
         # Save changes button
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+        if st.button("💾 Save All Changes", type="primary", width="stretch"):
             for idx, row in edited_df.iterrows():
                 item_id = int(row["ID"])
                 units_per_case = int(row["Units per Case"])
@@ -2565,6 +2965,357 @@ elif page == "📦 Inventory Tracking":
                 st.rerun()
     else:
         st.info("No inventory items found in the database.")
+
+elif page == "💰 Purchase Orders":
+    st.header("💰 Purchase Orders Management")
+    st.caption("Track material purchases and receive inventory with cost tracking")
+    
+    db = get_db()
+    
+    # Tabs for different PO functions
+    po_tab1, po_tab2, po_tab3 = st.tabs(["📝 Create PO", "📦 Receive Items", "📋 PO History"])
+    
+    with po_tab1:
+        st.subheader("Create New Purchase Order")
+        
+        with st.form("create_po"):
+            col1, col2 = st.columns(2)
+            with col1:
+                supplier_name = st.text_input("Supplier Name*", placeholder="e.g., ABC Bottling Company")
+                order_date = st.date_input("Order Date", value=datetime.now().date())
+            with col2:
+                # Get list of existing suppliers for autocomplete suggestions
+                existing_suppliers = list(set([
+                    po.get("supplier_name", "") for po in db["purchase_orders"].rows
+                ]))
+                if existing_suppliers:
+                    st.caption(f"Recent suppliers: {', '.join(existing_suppliers[:5])}")
+                
+                status = st.selectbox("Initial Status", ["draft", "ordered"])
+            
+            notes = st.text_area("PO Notes", placeholder="Additional notes or terms...")
+            
+            st.markdown("### Line Items")
+            st.caption("Add items to this purchase order")
+            
+            # Item type selector
+            item_type = st.selectbox("Item Type", ["Inventory Item (bottles, labels, etc.)", "Bulk Spirit"])
+            
+            # Number of line items
+            num_items = st.number_input("Number of Items", min_value=1, max_value=20, value=1)
+            
+            line_items = []
+            total_po_amount = 0.0
+            
+            for i in range(num_items):
+                st.markdown(f"**Item {i+1}**")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                if item_type.startswith("Inventory"):
+                    # Get inventory items
+                    inventory_items = list(db["inventory_tracking"].rows)
+                    item_names = [item["item_name"] for item in inventory_items]
+                    
+                    with col1:
+                        selected_item_name = st.selectbox(f"Item {i+1}", item_names, key=f"inv_item_{i}")
+                        selected_item = next((item for item in inventory_items if item["item_name"] == selected_item_name), None)
+                    with col2:
+                        quantity = st.number_input(f"Quantity {i+1}", min_value=0.0, value=0.0, step=1.0, key=f"qty_{i}")
+                    with col3:
+                        unit_cost = st.number_input(f"Unit Cost $ {i+1}", min_value=0.0, value=0.0, step=0.01, key=f"cost_{i}")
+                    with col4:
+                        line_total = quantity * unit_cost
+                        st.metric(f"Total {i+1}", f"${line_total:.2f}")
+                    
+                    if selected_item:
+                        line_items.append({
+                            "item_type": "inventory",
+                            "item_id": selected_item["id"],
+                            "item_name": selected_item_name,
+                            "quantity": quantity,
+                            "unit_cost": unit_cost,
+                            "total_cost": line_total
+                        })
+                        total_po_amount += line_total
+                
+                else:  # Bulk Spirit
+                    # Get bulk spirits
+                    bulk_spirits = list(db["bulk_spirits"].rows)
+                    spirit_names = [spirit["name"] for spirit in bulk_spirits]
+                    
+                    with col1:
+                        selected_spirit_name = st.selectbox(f"Spirit {i+1}", spirit_names, key=f"spirit_item_{i}")
+                        selected_spirit = next((spirit for spirit in bulk_spirits if spirit["name"] == selected_spirit_name), None)
+                    with col2:
+                        quantity = st.number_input(f"Gallons {i+1}", min_value=0.0, value=0.0, step=0.1, key=f"gal_{i}")
+                    with col3:
+                        unit_cost = st.number_input(f"Cost/Gal $ {i+1}", min_value=0.0, value=0.0, step=0.01, key=f"costg_{i}")
+                    with col4:
+                        line_total = quantity * unit_cost
+                        st.metric(f"Total {i+1}", f"${line_total:.2f}")
+                    
+                    if selected_spirit:
+                        line_items.append({
+                            "item_type": "bulk_spirit",
+                            "item_id": selected_spirit["id"],
+                            "item_name": selected_spirit_name,
+                            "quantity": quantity,
+                            "unit_cost": unit_cost,
+                            "total_cost": line_total
+                        })
+                        total_po_amount += line_total
+            
+            st.markdown("---")
+            st.markdown(f"### PO Total: **${total_po_amount:,.2f}**")
+            
+            submitted = st.form_submit_button("Create Purchase Order", type="primary")
+            
+            if submitted:
+                if supplier_name and line_items:
+                    # Generate PO number
+                    po_count = db["purchase_orders"].count
+                    po_number = f"PO-{datetime.now().strftime('%Y%m%d')}-{po_count + 1:03d}"
+                    
+                    # Insert PO
+                    po_id = db["purchase_orders"].insert({
+                        "po_number": po_number,
+                        "supplier_name": supplier_name,
+                        "order_date": order_date.strftime("%Y-%m-%d"),
+                        "status": status,
+                        "notes": notes,
+                        "total_amount": total_po_amount
+                    }).last_pk
+                    
+                    # Insert line items
+                    for item in line_items:
+                        db["purchase_order_items"].insert({
+                            "po_id": po_id,
+                            "item_type": item["item_type"],
+                            "item_id": item["item_id"],
+                            "item_name": item["item_name"],
+                            "quantity": item["quantity"],
+                            "unit_cost": item["unit_cost"],
+                            "total_cost": item["total_cost"],
+                            "received_quantity": 0.0
+                        })
+                    
+                    st.success(f"✅ Purchase Order {po_number} created successfully!")
+                    st.rerun()
+                else:
+                    st.error("Please enter supplier name and at least one line item")
+    
+    with po_tab2:
+        st.subheader("Receive Items from Purchase Orders")
+        
+        # Get all ordered POs
+        ordered_pos = list(db.execute(
+            "SELECT * FROM purchase_orders WHERE status = 'ordered' ORDER BY order_date DESC"
+        ).fetchall())
+        
+        if ordered_pos:
+            po_options = {f"{po['po_number']} - {po['supplier_name']} (${po['total_amount']:.2f})": po for po in ordered_pos}
+            selected_po_key = st.selectbox("Select Purchase Order to Receive", list(po_options.keys()))
+            
+            if selected_po_key:
+                selected_po = po_options[selected_po_key]
+                po_id = selected_po["id"]
+                
+                st.info(f"**PO:** {selected_po['po_number']} | **Supplier:** {selected_po['supplier_name']} | **Date:** {selected_po['order_date']}")
+                
+                # Get line items
+                po_items = list(db.execute(
+                    "SELECT * FROM purchase_order_items WHERE po_id = ?", [po_id]
+                ).fetchall())
+                
+                st.markdown("### Items to Receive")
+                
+                with st.form("receive_items"):
+                    receipt_date = st.date_input("Receipt Date", value=datetime.now().date())
+                    
+                    receive_data = []
+                    for item in po_items:
+                        st.markdown(f"**{item['item_name']}**")
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.text(f"Ordered: {item['quantity']:.2f}")
+                        with col2:
+                            st.text(f"Received: {item['received_quantity']:.2f}")
+                        with col3:
+                            remaining = item['quantity'] - item['received_quantity']
+                            st.text(f"Remaining: {remaining:.2f}")
+                        with col4:
+                            qty_to_receive = st.number_input(
+                                f"Receive Now", 
+                                min_value=0.0, 
+                                max_value=remaining, 
+                                value=remaining, 
+                                step=0.1,
+                                key=f"recv_{item['id']}"
+                            )
+                        
+                        receive_data.append({
+                            "item": item,
+                            "quantity_to_receive": qty_to_receive
+                        })
+                    
+                    submitted = st.form_submit_button("Receive Items & Create Cost Batches", type="primary")
+                    
+                    if submitted:
+                        batch_number = f"BATCH-{receipt_date.strftime('%Y%m%d')}-{po_id}"
+                        
+                        for data in receive_data:
+                            item = data["item"]
+                            qty = data["quantity_to_receive"]
+                            
+                            if qty > 0:
+                                # Update received quantity
+                                new_received = item["received_quantity"] + qty
+                                db["purchase_order_items"].update(item["id"], {
+                                    "received_quantity": new_received
+                                })
+                                
+                                # Create cost batch
+                                if item["item_type"] == "inventory":
+                                    # Add to inventory
+                                    inventory_item = db["inventory_tracking"].get(item["item_id"])
+                                    new_units = inventory_item["units_remaining"] + qty
+                                    db["inventory_tracking"].update(item["item_id"], {
+                                        "added": inventory_item.get("added", 0) + qty,
+                                        "units_remaining": new_units,
+                                        "cases_remaining": int(new_units / inventory_item.get("units_per_case", 1))
+                                    })
+                                    
+                                    # Create cost batch
+                                    db["inventory_cost_batches"].insert({
+                                        "inventory_item_id": item["item_id"],
+                                        "po_id": po_id,
+                                        "receipt_date": receipt_date.strftime("%Y-%m-%d"),
+                                        "quantity_received": qty,
+                                        "quantity_remaining": qty,
+                                        "unit_cost": item["unit_cost"],
+                                        "supplier": selected_po["supplier_name"],
+                                        "batch_number": batch_number
+                                    })
+                                
+                                elif item["item_type"] == "bulk_spirit":
+                                    # Add to bulk spirits
+                                    spirit = db["bulk_spirits"].get(item["item_id"])
+                                    abv = spirit.get("abv", 40.0)
+                                    new_gallons = spirit["wine_gallons"] + qty
+                                    new_proof_gallons = calculate_proof_gallons(new_gallons, spirit.get("proof", 80))
+                                    
+                                    # Calculate weight
+                                    density = calculate_density_from_abv(abv)
+                                    weight_added = qty * density
+                                    new_weight = spirit.get("weight_lbs", 0.0) + weight_added
+                                    
+                                    db["bulk_spirits"].update(item["item_id"], {
+                                        "wine_gallons": new_gallons,
+                                        "proof_gallons": new_proof_gallons,
+                                        "weight_lbs": new_weight
+                                    })
+                                    
+                                    # Create cost batch
+                                    db["bulk_spirit_cost_batches"].insert({
+                                        "bulk_spirit_id": item["item_id"],
+                                        "po_id": po_id,
+                                        "receipt_date": receipt_date.strftime("%Y-%m-%d"),
+                                        "weight_lbs": weight_added,
+                                        "weight_remaining": weight_added,
+                                        "wine_gallons": qty,
+                                        "gallons_remaining": qty,
+                                        "cost_per_gallon": item["unit_cost"],
+                                        "cost_per_lb": item["unit_cost"] / density if density > 0 else 0,
+                                        "total_cost": qty * item["unit_cost"],
+                                        "supplier": selected_po["supplier_name"]
+                                    })
+                        
+                        # Update PO status if fully received
+                        all_items = list(db.execute("SELECT * FROM purchase_order_items WHERE po_id = ?", [po_id]).fetchall())
+                        if all(item["received_quantity"] >= item["quantity"] for item in all_items):
+                            db["purchase_orders"].update(po_id, {"status": "received"})
+                        
+                        # Update cost values
+                        update_inventory_cost_values(db)
+                        update_bulk_spirit_cost_values(db)
+                        
+                        st.success(f"✅ Items received successfully! Cost batches created.")
+                        st.rerun()
+        else:
+            st.info("No purchase orders with 'ordered' status. Create a PO and set status to 'ordered' first.")
+    
+    with po_tab3:
+        st.subheader("Purchase Order History")
+        
+        # Filters
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.multiselect("Filter by Status", ["draft", "ordered", "received", "cancelled"], default=["ordered", "received"])
+        with col2:
+            supplier_filter = st.text_input("Filter by Supplier (partial match)")
+        
+        # Get POs
+        pos = list(db["purchase_orders"].rows)
+        
+        # Apply filters
+        if status_filter:
+            pos = [po for po in pos if po.get("status") in status_filter]
+        if supplier_filter:
+            pos = [po for po in pos if supplier_filter.lower() in po.get("supplier_name", "").lower()]
+        
+        # Sort by date descending
+        pos = sorted(pos, key=lambda x: x.get("order_date", ""), reverse=True)
+        
+        if pos:
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                total_amount = sum([po.get("total_amount", 0) for po in pos])
+                st.metric("Total Amount", f"${total_amount:,.2f}")
+            with col2:
+                st.metric("Total POs", len(pos))
+            with col3:
+                received_pos = [po for po in pos if po.get("status") == "received"]
+                st.metric("Received POs", len(received_pos))
+            
+            # Display POs
+            st.markdown("### Purchase Orders")
+            for po in pos:
+                with st.expander(f"**{po['po_number']}** - {po['supplier_name']} | {po['order_date']} | Status: {po['status'].upper()} | ${po['total_amount']:,.2f}"):
+                    # Get line items
+                    items = list(db.execute("SELECT * FROM purchase_order_items WHERE po_id = ?", [po['id']]).fetchall())
+                    
+                    if items:
+                        items_data = []
+                        for item in items:
+                            items_data.append({
+                                "Item": item["item_name"],
+                                "Type": item["item_type"],
+                                "Ordered Qty": f"{item['quantity']:.2f}",
+                                "Received Qty": f"{item['received_quantity']:.2f}",
+                                "Unit Cost": f"${item['unit_cost']:.2f}",
+                                "Total": f"${item['total_cost']:.2f}"
+                            })
+                        st.dataframe(pd.DataFrame(items_data), width="stretch", hide_index=True)
+                    
+                    if po.get("notes"):
+                        st.caption(f"**Notes:** {po['notes']}")
+                    
+                    # Actions
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        if st.button(f"Export CSV", key=f"export_{po['id']}"):
+                            items_df = pd.DataFrame(items_data)
+                            csv = items_df.to_csv(index=False)
+                            st.download_button(
+                                f"Download {po['po_number']}.csv",
+                                csv,
+                                f"{po['po_number']}.csv",
+                                "text/csv"
+                            )
+        else:
+            st.info("No purchase orders found matching filters.")
 
 elif page == "📋 Recipes":
     st.header("📋 Production Recipes")
@@ -2673,7 +3424,7 @@ elif page == "📋 Recipes":
                             
                             col1, col2 = st.columns([1, 4])
                             with col1:
-                                if st.form_submit_button("💾 Save Recipe", use_container_width=True):
+                                if st.form_submit_button("💾 Save Recipe", width="stretch"):
                                     # Delete existing recipes for this finished good + packaging type
                                     if "production_recipes" in db.table_names():
                                         for recipe in db["production_recipes"].rows_where(
@@ -2710,7 +3461,7 @@ elif page == "📋 Recipes":
                                             "Units": inv.get('units_per_case', 'N/A')
                                         })
                                 if summary_data:
-                                    st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+                                    st.dataframe(pd.DataFrame(summary_data), width="stretch", hide_index=True)
 
 elif page == "⚙️ Production":
     st.header("⚙️ Production Management")
@@ -2751,6 +3502,18 @@ elif page == "⚙️ Production":
                 selected_batch = st.selectbox("Source Batch (optional)", batch_options)
             with col7:
                 production_notes = st.text_input("Notes (optional)", "")
+            
+            # Cost tracking (optional)
+            st.markdown("### 💰 Cost Tracking (Optional)")
+            col8, col9 = st.columns(2)
+            with col8:
+                labor_hours = st.number_input("Labor Hours", min_value=0.0, value=0.0, step=0.5)
+                labor_rate = st.number_input("Labor Rate ($/hr)", min_value=0.0, value=0.0, step=0.5)
+            with col9:
+                overhead_cost = st.number_input("Overhead Cost ($)", min_value=0.0, value=0.0, step=0.01, 
+                                               help="Utilities, equipment depreciation, etc.")
+                labor_cost_calc = labor_hours * labor_rate
+                st.metric("Labor Cost", f"${labor_cost_calc:.2f}")
             
             submitted = st.form_submit_button("Record Production")
             
@@ -2801,20 +3564,6 @@ elif page == "⚙️ Production":
                     
                     batch_name = selected_batch if selected_batch != "(No Batch)" else ""
                     
-                    # Record production history
-                    db["production_history"].insert({
-                        "production_date": production_date.strftime("%Y-%m-%d"),
-                        "finished_good_id": fg_id,
-                        "finished_good_name": selected_product,
-                        "cases_produced": cases_produced,
-                        "packaging_type": packaging_type,
-                        "units_produced": units_produced,
-                        "proof_gallons_produced": proof_gallons_produced,
-                        "excise_tax_incurred": excise_tax_incurred,
-                        "batch_name": batch_name,
-                        "notes": production_notes
-                    })
-                    
                     # Get production recipes for this finished good + packaging type
                     production_recipes = []
                     if "production_recipes" in db.table_names():
@@ -2827,8 +3576,10 @@ elif page == "⚙️ Production":
                     if not production_recipes:
                         st.warning(f"⚠️ No recipe configured for {selected_product} - {packaging_type}. Please configure the recipe in the Recipes page.")
                     
-                    # Update inventory_tracking items based on production
+                    # Calculate material costs using FIFO and update inventory
+                    total_material_cost = 0.0
                     inventory_updates_made = []
+                    
                     for recipe in production_recipes:
                         inventory_item_id = recipe["inventory_item_id"]
                         qty_per_case = recipe.get("qty_per_case", 1.0)
@@ -2842,6 +3593,28 @@ elif page == "⚙️ Production":
                         # Calculate depletion: cases_produced * qty_per_case * (1 + wastage_factor)
                         depletion = cases_produced * qty_per_case * (1 + wastage_factor)
                         depletion_int = int(round(depletion))
+                        
+                        # Calculate FIFO cost for this material
+                        item_cost = 0.0
+                        if "inventory_cost_batches" in db.table_names():
+                            # Get cost batches for this item (oldest first)
+                            cost_batches = list(db.execute(
+                                "SELECT * FROM inventory_cost_batches WHERE inventory_item_id = ? AND quantity_remaining > 0 ORDER BY receipt_date ASC",
+                                [inventory_item_id]
+                            ).fetchall())
+                            
+                            if cost_batches:
+                                # Calculate FIFO cost
+                                fifo_result = calculate_fifo_cost(cost_batches, depletion_int)
+                                item_cost = fifo_result['total_cost']
+                                
+                                # Update batch quantities
+                                for batch_update in fifo_result['batches_updated']:
+                                    db["inventory_cost_batches"].update(batch_update['batch_id'], {
+                                        "quantity_remaining": batch_update['new_remaining']
+                                    })
+                        
+                        total_material_cost += item_cost
                         
                         # Update depleted field (add to existing depletion)
                         new_depleted = inventory_item["depleted"] + depletion_int
@@ -2857,9 +3630,17 @@ elif page == "⚙️ Production":
                             "cases_remaining": new_cases_remaining
                         })
                         
+                        # Update cost values
+                        avg_cost = get_avg_cost_inventory_item(db, inventory_item_id)
+                        db["inventory_tracking"].update(inventory_item_id, {
+                            "avg_cost_per_unit": avg_cost,
+                            "total_cost_value": avg_cost * new_units_remaining
+                        })
+                        
                         inventory_updates_made.append({
                             "item": inventory_item["item_name"],
                             "depletion": f"{depletion_int}",
+                            "cost": f"${item_cost:.2f}",
                             "units_remaining": new_units_remaining,
                             "cases_remaining": new_cases_remaining
                         })
@@ -2900,9 +3681,61 @@ elif page == "⚙️ Production":
                         "new_stock": new_rm_stock
                     })
                 
+                    # Calculate total COGS
+                    labor_cost = labor_hours * labor_rate
+                    total_cogs = total_material_cost + labor_cost + overhead_cost
+                    cogs_per_case = total_cogs / cases_produced if cases_produced > 0 else 0.0
+                    
+                    # Record production history with cost data
+                    db["production_history"].insert({
+                        "production_date": production_date.strftime("%Y-%m-%d"),
+                        "finished_good_id": fg_id,
+                        "finished_good_name": selected_product,
+                        "cases_produced": cases_produced,
+                        "packaging_type": packaging_type,
+                        "units_produced": units_produced,
+                        "proof_gallons_produced": proof_gallons_produced,
+                        "excise_tax_incurred": excise_tax_incurred,
+                        "batch_name": batch_name,
+                        "notes": production_notes,
+                        "material_costs": total_material_cost,
+                        "labor_cost": labor_cost,
+                        "overhead_cost": overhead_cost,
+                        "total_cogs": total_cogs,
+                        "cogs_per_case": cogs_per_case
+                    })
+                    
+                    # Update finished good's cost per case (weighted average)
+                    current_cost = selected_fg.get("cost_per_case", 0.0)
+                    current_stock_cases = (selected_fg["singles"] + selected_fg["bottled_s"] * UNITS_PER_CASE + selected_fg["bottled_i"] * UNITS_PER_CASE) / UNITS_PER_CASE
+                    
+                    if current_stock_cases > 0:
+                        # Weighted average of existing stock and new production
+                        new_cost_per_case = ((current_cost * current_stock_cases) + (cogs_per_case * cases_produced)) / (current_stock_cases + cases_produced)
+                    else:
+                        new_cost_per_case = cogs_per_case
+                    
+                    db["finished_goods"].update(fg_id, {
+                        "cost_per_case": new_cost_per_case,
+                        "total_cogs": new_cost_per_case * (current_stock_cases + cases_produced)
+                    })
+                    
                     updates_made = inventory_updates_made + raw_material_updates
                     
                     st.success(f"✅ Production recorded successfully!")
+                    
+                    # Show cost summary
+                    if total_cogs > 0:
+                        st.markdown("### 💰 Production Cost Summary")
+                        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+                        with col_c1:
+                            st.metric("Material Cost", f"${total_material_cost:.2f}")
+                        with col_c2:
+                            st.metric("Labor Cost", f"${labor_cost:.2f}")
+                        with col_c3:
+                            st.metric("Overhead", f"${overhead_cost:.2f}")
+                        with col_c4:
+                            st.metric("COGS per Case", f"${cogs_per_case:.2f}")
                     
                     # Display appropriate message based on packaging type
                     if packaging_type == "Singles":
@@ -2914,13 +3747,13 @@ elif page == "⚙️ Production":
                         st.subheader("📦 Inventory Depletions:")
                         st.caption(f"Formula: Depletion = Cases Produced ({cases_produced}) × Qty per Case × (1 + Wastage %)")
                         inv_df = pd.DataFrame(inventory_updates_made)
-                        st.dataframe(inv_df, use_container_width=True, hide_index=True)
+                        st.dataframe(inv_df, width="stretch", hide_index=True)
                         st.caption("✅ Inventory items have been deducted. **Units Remaining** and **Cases Remaining** are automatically recalculated. Leftover units are preserved.")
                     
                     if raw_material_updates:
                         st.subheader("Raw Material Updates:")
                         rm_df = pd.DataFrame(raw_material_updates)
-                        st.dataframe(rm_df, use_container_width=True, hide_index=True)
+                        st.dataframe(rm_df, width="stretch", hide_index=True)
                     
                     if not inventory_updates_made and not raw_material_updates:
                         st.warning(f"⚠️ No production recipes configured for {selected_product} - {packaging_type}. Configure recipes in the Recipes page to automatically deduct inventory items.")
@@ -2935,7 +3768,348 @@ elif page == "⚙️ Production":
             "All Cases": f"{(fg['singles'] + fg['bottled_s'] * UNITS_PER_CASE + fg['bottled_i'] * UNITS_PER_CASE) / UNITS_PER_CASE:.1f}",
             "ABV": f"{fg['abv']:.2f}%" if fg["abv"] > 0 else "N/A"
         } for fg in finished_goods]
-        st.dataframe(pd.DataFrame(fg_data), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(fg_data), width="stretch", hide_index=True)
+
+elif page == "📄 Invoices":
+    st.header("📄 Customer Invoices")
+    st.caption("Create and manage invoices for your distributor customer")
+    
+    db = get_db()
+    
+    # Tabs for different invoice functions
+    inv_tab1, inv_tab2, inv_tab3 = st.tabs(["📝 Create Invoice", "📋 Invoice List", "💰 Payment Tracking"])
+    
+    with inv_tab1:
+        st.subheader("Create New Invoice")
+        
+        with st.form("create_invoice"):
+            col1, col2 = st.columns(2)
+            with col1:
+                customer_name = st.text_input("Customer Name*", value="Primary Distributor", placeholder="e.g., ABC Distributors")
+                invoice_date = st.date_input("Invoice Date", value=datetime.now().date())
+            with col2:
+                due_date = st.date_input("Due Date", value=(datetime.now() + pd.Timedelta(days=30)).date())
+                status = st.selectbox("Status", ["draft", "sent", "paid"])
+            
+            notes = st.text_area("Invoice Notes", placeholder="Payment terms, special instructions...")
+            
+            st.markdown("### Line Items")
+            st.caption("Add products to this invoice")
+            
+            # Get finished goods with prices
+            finished_goods = list(db["finished_goods"].rows)
+            
+            if not finished_goods:
+                st.warning("No finished goods available. Add products first.")
+            else:
+                num_items = st.number_input("Number of Line Items", min_value=1, max_value=20, value=1)
+                
+                line_items = []
+                subtotal = 0.0
+                total_cogs = 0.0
+                
+                for i in range(num_items):
+                    st.markdown(f"**Line Item {i+1}**")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    fg_names = [fg["name"] for fg in finished_goods]
+                    
+                    with col1:
+                        selected_name = st.selectbox(f"Product {i+1}", fg_names, key=f"prod_{i}")
+                        selected_fg = next((fg for fg in finished_goods if fg["name"] == selected_name), None)
+                    with col2:
+                        quantity_cases = st.number_input(f"Cases {i+1}", min_value=0.0, value=0.0, step=1.0, key=f"qty_inv_{i}")
+                    with col3:
+                        default_price = selected_fg.get("price_per_case", 0.0) if selected_fg else 0.0
+                        unit_price = st.number_input(f"Price/Case $ {i+1}", min_value=0.0, value=default_price, step=0.01, key=f"price_inv_{i}")
+                    with col4:
+                        line_total = quantity_cases * unit_price
+                        st.metric(f"Total {i+1}", f"${line_total:.2f}")
+                    
+                    if selected_fg and quantity_cases > 0:
+                        cogs_per_case = selected_fg.get("cost_per_case", 0.0)
+                        line_cogs = cogs_per_case * quantity_cases
+                        line_profit = line_total - line_cogs
+                        
+                        line_items.append({
+                            "finished_good_id": selected_fg["id"],
+                            "product_name": selected_name,
+                            "quantity_cases": quantity_cases,
+                            "unit_price": unit_price,
+                            "cogs_per_case": cogs_per_case,
+                            "line_total": line_total,
+                            "line_cogs": line_cogs,
+                            "line_profit": line_profit
+                        })
+                        subtotal += line_total
+                        total_cogs += line_cogs
+                
+                tax_amount = 0.0  # Can be configured if needed
+                total_amount = subtotal + tax_amount
+                gross_profit = subtotal - total_cogs
+                
+                st.markdown("---")
+                col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+                with col_t1:
+                    st.metric("Subtotal", f"${subtotal:,.2f}")
+                with col_t2:
+                    st.metric("Total COGS", f"${total_cogs:,.2f}")
+                with col_t3:
+                    st.metric("Gross Profit", f"${gross_profit:,.2f}")
+                with col_t4:
+                    margin_pct = (gross_profit / subtotal * 100) if subtotal > 0 else 0
+                    st.metric("Margin %", f"{margin_pct:.1f}%")
+                
+                submitted = st.form_submit_button("Create Invoice", type="primary")
+                
+                if submitted:
+                    if customer_name and line_items:
+                        # Generate invoice number
+                        inv_count = db["invoices"].count
+                        invoice_number = f"INV-{datetime.now().strftime('%Y%m%d')}-{inv_count + 1:03d}"
+                        
+                        # Insert invoice
+                        inv_id = db["invoices"].insert({
+                            "invoice_number": invoice_number,
+                            "invoice_date": invoice_date.strftime("%Y-%m-%d"),
+                            "customer_name": customer_name,
+                            "due_date": due_date.strftime("%Y-%m-%d"),
+                            "status": status,
+                            "subtotal": subtotal,
+                            "tax_amount": tax_amount,
+                            "total_amount": total_amount,
+                            "payment_date": "",
+                            "notes": notes
+                        }).last_pk
+                        
+                        # Insert line items
+                        for item in line_items:
+                            db["invoice_items"].insert({
+                                "invoice_id": inv_id,
+                                "finished_good_id": item["finished_good_id"],
+                                "product_name": item["product_name"],
+                                "quantity_cases": item["quantity_cases"],
+                                "unit_price": item["unit_price"],
+                                "cogs_per_case": item["cogs_per_case"],
+                                "line_total": item["line_total"],
+                                "line_cogs": item["line_cogs"],
+                                "line_profit": item["line_profit"]
+                            })
+                        
+                        st.success(f"✅ Invoice {invoice_number} created successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Please enter customer name and at least one line item")
+    
+    with inv_tab2:
+        st.subheader("All Invoices")
+        
+        # Filters
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.multiselect("Filter by Status", ["draft", "sent", "paid"], default=["draft", "sent", "paid"])
+        with col2:
+            customer_filter = st.text_input("Filter by Customer")
+        
+        # Get invoices
+        invoices = list(db["invoices"].rows)
+        
+        # Apply filters
+        if status_filter:
+            invoices = [inv for inv in invoices if inv.get("status") in status_filter]
+        if customer_filter:
+            invoices = [inv for inv in invoices if customer_filter.lower() in inv.get("customer_name", "").lower()]
+        
+        # Sort by date descending
+        invoices = sorted(invoices, key=lambda x: x.get("invoice_date", ""), reverse=True)
+        
+        if invoices:
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                total_revenue = sum([inv.get("total_amount", 0) for inv in invoices])
+                st.metric("Total Amount", f"${total_revenue:,.2f}")
+            with col2:
+                st.metric("Total Invoices", len(invoices))
+            with col3:
+                unpaid = [inv for inv in invoices if inv.get("status") != "paid"]
+                unpaid_amount = sum([inv.get("total_amount", 0) for inv in unpaid])
+                st.metric("Unpaid Amount", f"${unpaid_amount:,.2f}")
+            with col4:
+                paid = [inv for inv in invoices if inv.get("status") == "paid"]
+                st.metric("Paid Invoices", len(paid))
+            
+            # Display invoices
+            st.markdown("### Invoices")
+            for inv in invoices:
+                status_emoji = {"draft": "📝", "sent": "📤", "paid": "✅"}.get(inv.get("status"), "📄")
+                
+                with st.expander(f"{status_emoji} **{inv['invoice_number']}** - {inv['customer_name']} | {inv['invoice_date']} | ${inv['total_amount']:,.2f}"):
+                    # Get line items
+                    items = list(db.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", [inv['id']]).fetchall())
+                    
+                    if items:
+                        items_data = []
+                        for item in items:
+                            items_data.append({
+                                "Product": item["product_name"],
+                                "Quantity (Cases)": f"{item['quantity_cases']:.1f}",
+                                "Unit Price": f"${item['unit_price']:.2f}",
+                                "Line Total": f"${item['line_total']:.2f}",
+                                "COGS": f"${item['line_cogs']:.2f}",
+                                "Profit": f"${item['line_profit']:.2f}"
+                            })
+                        st.dataframe(pd.DataFrame(items_data), width="stretch", hide_index=True)
+                        
+                        # Invoice summary
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        with col_s1:
+                            st.write(f"**Subtotal:** ${inv['subtotal']:,.2f}")
+                        with col_s2:
+                            total_inv_cogs = sum([item['line_cogs'] for item in items])
+                            st.write(f"**Total COGS:** ${total_inv_cogs:,.2f}")
+                        with col_s3:
+                            gross_profit = inv['subtotal'] - total_inv_cogs
+                            st.write(f"**Gross Profit:** ${gross_profit:,.2f}")
+                    
+                    if inv.get("notes"):
+                        st.caption(f"**Notes:** {inv['notes']}")
+                    
+                    st.caption(f"**Due Date:** {inv.get('due_date')} | **Status:** {inv.get('status').upper()}")
+                    
+                    # Actions
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        if st.button("Fulfill & Ship", key=f"fulfill_{inv['id']}", help="Deduct inventory and mark as sold"):
+                            # Deduct inventory for each line item
+                            for item in items:
+                                fg = db["finished_goods"].get(item["finished_good_id"])
+                                if fg:
+                                    # Deduct from inventory (prioritize bottled_s, then bottled_i, then singles)
+                                    qty_cases = item["quantity_cases"]
+                                    units_needed = int(qty_cases * UNITS_PER_CASE)
+                                    
+                                    # Deduct from bottled_s first
+                                    bottled_s_units = fg["bottled_s"] * UNITS_PER_CASE
+                                    if bottled_s_units >= units_needed:
+                                        new_bottled_s = fg["bottled_s"] - int(units_needed / UNITS_PER_CASE)
+                                        new_bottled_i = fg["bottled_i"]
+                                        new_singles = fg["singles"]
+                                    else:
+                                        new_bottled_s = 0
+                                        units_needed -= bottled_s_units
+                                        
+                                        # Then from bottled_i
+                                        bottled_i_units = fg["bottled_i"] * UNITS_PER_CASE
+                                        if bottled_i_units >= units_needed:
+                                            new_bottled_i = fg["bottled_i"] - int(units_needed / UNITS_PER_CASE)
+                                            new_singles = fg["singles"]
+                                        else:
+                                            new_bottled_i = 0
+                                            units_needed -= bottled_i_units
+                                            new_singles = max(0, fg["singles"] - units_needed)
+                                    
+                                    new_sold = fg["sold"] + int(qty_cases * UNITS_PER_CASE)
+                                    
+                                    update_finished_good(db, fg["id"], 
+                                                       singles=new_singles,
+                                                       bottled_s=new_bottled_s,
+                                                       bottled_i=new_bottled_i,
+                                                       abv=fg.get("abv", 0.0))
+                                    
+                                    db["finished_goods"].update(fg["id"], {"sold": new_sold})
+                            
+                            # Mark invoice as sent if it was draft
+                            if inv.get("status") == "draft":
+                                db["invoices"].update(inv["id"], {"status": "sent"})
+                            
+                            st.success("✅ Invoice fulfilled! Inventory updated.")
+                            st.rerun()
+                    
+                    with col2:
+                        if inv.get("status") != "paid" and st.button("Mark as Paid", key=f"paid_{inv['id']}"):
+                            db["invoices"].update(inv["id"], {
+                                "status": "paid",
+                                "payment_date": datetime.now().strftime("%Y-%m-%d")
+                            })
+                            st.success("✅ Invoice marked as paid!")
+                            st.rerun()
+                    
+                    with col3:
+                        if st.button("Export CSV", key=f"export_inv_{inv['id']}"):
+                            items_df = pd.DataFrame(items_data)
+                            csv = items_df.to_csv(index=False)
+                            st.download_button(
+                                f"Download {inv['invoice_number']}.csv",
+                                csv,
+                                f"{inv['invoice_number']}.csv",
+                                "text/csv",
+                                key=f"dl_{inv['id']}"
+                            )
+        else:
+            st.info("No invoices found matching filters.")
+    
+    with inv_tab3:
+        st.subheader("Payment Tracking & Aging")
+        
+        # Get all invoices
+        all_invoices = list(db["invoices"].rows)
+        
+        if all_invoices:
+            # Unpaid invoices
+            unpaid = [inv for inv in all_invoices if inv.get("status") != "paid"]
+            
+            if unpaid:
+                st.markdown("### 📌 Outstanding Invoices")
+                aging_data = []
+                
+                for inv in unpaid:
+                    due_date = datetime.strptime(inv.get("due_date"), "%Y-%m-%d")
+                    days_outstanding = (datetime.now() - due_date).days
+                    
+                    if days_outstanding < 0:
+                        age_category = "Current (Not Yet Due)"
+                    elif days_outstanding <= 30:
+                        age_category = "1-30 Days"
+                    elif days_outstanding <= 60:
+                        age_category = "31-60 Days"
+                    else:
+                        age_category = "60+ Days (OVERDUE)"
+                    
+                    aging_data.append({
+                        "Invoice": inv["invoice_number"],
+                        "Customer": inv["customer_name"],
+                        "Invoice Date": inv["invoice_date"],
+                        "Due Date": inv["due_date"],
+                        "Days Outstanding": days_outstanding,
+                        "Age Category": age_category,
+                        "Amount": f"${inv['total_amount']:,.2f}",
+                        "Status": inv["status"].upper()
+                    })
+                
+                aging_df = pd.DataFrame(aging_data)
+                st.dataframe(aging_df, width="stretch", hide_index=True)
+                
+                # Summary by age
+                st.markdown("### Aging Summary")
+                current = sum([inv["total_amount"] for inv in unpaid if (datetime.now() - datetime.strptime(inv["due_date"], "%Y-%m-%d")).days < 0])
+                days_1_30 = sum([inv["total_amount"] for inv in unpaid if 0 <= (datetime.now() - datetime.strptime(inv["due_date"], "%Y-%m-%d")).days <= 30])
+                days_31_60 = sum([inv["total_amount"] for inv in unpaid if 31 <= (datetime.now() - datetime.strptime(inv["due_date"], "%Y-%m-%d")).days <= 60])
+                days_60_plus = sum([inv["total_amount"] for inv in unpaid if (datetime.now() - datetime.strptime(inv["due_date"], "%Y-%m-%d")).days > 60])
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Current", f"${current:,.2f}")
+                with col2:
+                    st.metric("1-30 Days", f"${days_1_30:,.2f}")
+                with col3:
+                    st.metric("31-60 Days", f"${days_31_60:,.2f}")
+                with col4:
+                    st.metric("60+ Days", f"${days_60_plus:,.2f}", delta="OVERDUE" if days_60_plus > 0 else None)
+            else:
+                st.success("✅ All invoices are paid!")
+        else:
+            st.info("No invoices created yet.")
 
 elif page == "📈 Reports & Analytics":
     st.header("📈 Reports & Analytics")
@@ -3121,7 +4295,7 @@ elif page == "📈 Reports & Analytics":
             
             product_df = pd.DataFrame(product_data)
             product_df = product_df.sort_values("Revenue", key=lambda x: x.str.replace('$', '').str.replace(',', '').astype(float), ascending=False)
-            st.dataframe(product_df, use_container_width=True, hide_index=True)
+            st.dataframe(product_df, width="stretch", hide_index=True)
         
         # Top customers
         st.markdown("### Top Customers")
@@ -3145,7 +4319,7 @@ elif page == "📈 Reports & Analytics":
             
             customer_df = pd.DataFrame(customer_data)
             customer_df = customer_df.sort_values("Revenue", key=lambda x: x.str.replace('$', '').str.replace(',', '').astype(float), ascending=False)
-            st.dataframe(customer_df.head(10), use_container_width=True, hide_index=True)
+            st.dataframe(customer_df.head(10), width="stretch", hide_index=True)
         
         # Export button
         if st.button("📥 Export Investor Report (CSV)"):
@@ -3231,7 +4405,7 @@ elif page == "📈 Reports & Analytics":
                 })
             
             sales_df = pd.DataFrame(sales_data)
-            st.dataframe(sales_df, use_container_width=True, hide_index=True)
+            st.dataframe(sales_df, width="stretch", hide_index=True)
             
             # Export
             if st.button("📥 Export Monthly Sales (CSV)", key="export_monthly_sales"):
@@ -3329,7 +4503,7 @@ elif page == "📈 Reports & Analytics":
                 })
             
             bulk_df = pd.DataFrame(bulk_data)
-            st.dataframe(bulk_df, use_container_width=True, hide_index=True)
+            st.dataframe(bulk_df, width="stretch", hide_index=True)
             
             # Totals
             col1, col2, col3 = st.columns(3)
@@ -3359,7 +4533,7 @@ elif page == "📈 Reports & Analytics":
                     "Proof Gallons": f"{b['proof_gallons']:.2f}"
                 })
             
-            st.dataframe(pd.DataFrame(batch_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(batch_data), width="stretch", hide_index=True)
             
             st.info(f"💡 **Total batch production:** {sum([b['weight_produced_lbs'] for b in batch_production]):,.2f} lbs ({batch_pg_produced:.2f} proof gallons)")
         
@@ -3378,7 +4552,7 @@ elif page == "📈 Reports & Analytics":
                 })
             
             prod_df = pd.DataFrame(prod_data)
-            st.dataframe(prod_df, use_container_width=True, hide_index=True)
+            st.dataframe(prod_df, width="stretch", hide_index=True)
         else:
             st.info("No production recorded for this period")
         
@@ -3451,7 +4625,7 @@ elif page == "📈 Reports & Analytics":
                 })
             
             prod_df = pd.DataFrame(prod_data)
-            st.dataframe(prod_df, use_container_width=True, hide_index=True)
+            st.dataframe(prod_df, width="stretch", hide_index=True)
             
             # Production timeline
             st.markdown("### Production Timeline")
@@ -3467,7 +4641,7 @@ elif page == "📈 Reports & Analytics":
                 })
             
             timeline_df = pd.DataFrame(timeline_data)
-            st.dataframe(timeline_df, use_container_width=True, hide_index=True)
+            st.dataframe(timeline_df, width="stretch", hide_index=True)
             
             # Export
             if st.button("📥 Export Production Report (CSV)", key="export_prod"):
@@ -3525,9 +4699,292 @@ elif page == "📈 Reports & Analytics":
                                 "Tax Due": f"${fg.get('excise_tax_due', 0.0):.2f}"
                             })
                         
-                        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(display_data), width="stretch", hide_index=True)
         else:
             st.info("No snapshots created yet. Click 'Create Snapshot Now' to save current inventory state.")
+
+elif page == "🎁 Samples":
+    st.header("🎁 Sample Distribution Tracking")
+    st.caption("Track sample distributions with recipient details and cost tracking (samples are not taxed)")
+    
+    db = get_db()
+    
+    # Tabs for different functions
+    sample_tab1, sample_tab2, sample_tab3 = st.tabs(["📝 Distribute Samples", "📋 Sample History", "📊 Sample Reports"])
+    
+    with sample_tab1:
+        st.subheader("Record Sample Distribution")
+        st.info("💡 Samples are not subject to excise tax but costs should be tracked for expense reporting")
+        
+        finished_goods = list(db["finished_goods"].rows)
+        
+        if not finished_goods:
+            st.warning("No finished goods available. Add products first.")
+        else:
+            with st.form("distribute_samples"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    fg_names = [fg["name"] for fg in finished_goods]
+                    selected_name = st.selectbox("Select Product*", fg_names)
+                    selected_fg = next((fg for fg in finished_goods if fg["name"] == selected_name), None)
+                with col2:
+                    distribution_date = st.date_input("Distribution Date", value=datetime.now().date())
+                
+                col3, col4 = st.columns(2)
+                with col3:
+                    quantity_units = st.number_input("Quantity (Units)*", min_value=1, value=1, step=1)
+                    quantity_cases = quantity_units / UNITS_PER_CASE
+                    st.caption(f"= {quantity_cases:.2f} cases")
+                with col4:
+                    if selected_fg:
+                        cogs_per_unit = selected_fg.get("cost_per_case", 0.0) / UNITS_PER_CASE
+                        total_cogs = cogs_per_unit * quantity_units
+                        st.metric("Estimated COGS", f"${total_cogs:.2f}")
+                
+                col5, col6 = st.columns(2)
+                with col5:
+                    recipient_name = st.text_input("Recipient Name*", placeholder="e.g., John Smith, ABC Magazine")
+                with col6:
+                    recipient_type = st.selectbox("Recipient Type*", ["Trade", "Media", "Internal", "Marketing"])
+                
+                event_name = st.text_input("Event/Purpose (optional)", placeholder="e.g., Trade Show, Product Review, Staff Training")
+                notes = st.text_area("Notes (optional)", placeholder="Additional details about this distribution")
+                
+                submitted = st.form_submit_button("Record Sample Distribution", type="primary")
+                
+                if submitted:
+                    if selected_fg and recipient_name:
+                        # Calculate COGS
+                        cogs_per_case = selected_fg.get("cost_per_case", 0.0)
+                        cogs_amount = (quantity_units / UNITS_PER_CASE) * cogs_per_case
+                        
+                        # Deduct from inventory (samples counter)
+                        new_samples = selected_fg.get("samples", 0) + quantity_units
+                        
+                        # Also deduct from actual inventory
+                        # Prioritize singles first, then bottled stock
+                        new_singles = selected_fg["singles"]
+                        new_bottled_s = selected_fg["bottled_s"]
+                        new_bottled_i = selected_fg["bottled_i"]
+                        
+                        if new_singles >= quantity_units:
+                            new_singles -= quantity_units
+                        else:
+                            # Take from singles first
+                            units_needed = quantity_units - new_singles
+                            new_singles = 0
+                            
+                            # Then from bottled_s
+                            bottled_s_units = new_bottled_s * UNITS_PER_CASE
+                            if bottled_s_units >= units_needed:
+                                cases_needed = int(units_needed / UNITS_PER_CASE)
+                                leftover = units_needed % UNITS_PER_CASE
+                                new_bottled_s -= cases_needed
+                                if leftover > 0 and new_bottled_s > 0:
+                                    new_bottled_s -= 1
+                                    new_singles = UNITS_PER_CASE - leftover
+                            else:
+                                new_bottled_s = 0
+                                units_needed -= bottled_s_units
+                                
+                                # Then from bottled_i
+                                bottled_i_units = new_bottled_i * UNITS_PER_CASE
+                                if bottled_i_units >= units_needed:
+                                    cases_needed = int(units_needed / UNITS_PER_CASE)
+                                    leftover = units_needed % UNITS_PER_CASE
+                                    new_bottled_i -= cases_needed
+                                    if leftover > 0 and new_bottled_i > 0:
+                                        new_bottled_i -= 1
+                                        new_singles = UNITS_PER_CASE - leftover
+                                else:
+                                    # Not enough inventory
+                                    st.error(f"❌ Not enough inventory! Available: {selected_fg['singles'] + new_bottled_s * UNITS_PER_CASE + new_bottled_i * UNITS_PER_CASE} units")
+                                    st.stop()
+                        
+                        # Update finished good
+                        update_finished_good(db, selected_fg["id"],
+                                           singles=new_singles,
+                                           bottled_s=new_bottled_s,
+                                           bottled_i=new_bottled_i,
+                                           abv=selected_fg.get("abv", 0.0))
+                        
+                        db["finished_goods"].update(selected_fg["id"], {"samples": new_samples})
+                        
+                        # Record sample distribution
+                        db["sample_distributions"].insert({
+                            "distribution_date": distribution_date.strftime("%Y-%m-%d"),
+                            "finished_good_id": selected_fg["id"],
+                            "product_name": selected_name,
+                            "quantity_units": quantity_units,
+                            "quantity_cases": quantity_cases,
+                            "recipient_name": recipient_name,
+                            "recipient_type": recipient_type.lower(),
+                            "event_name": event_name,
+                            "cogs_amount": cogs_amount,
+                            "notes": notes
+                        })
+                        
+                        st.success(f"✅ Sample distribution recorded! {quantity_units} units of {selected_name} given to {recipient_name}")
+                        st.info(f"💰 COGS tracked: ${cogs_amount:.2f} (expense deduction, no excise tax)")
+                        st.rerun()
+                    else:
+                        st.error("Please select a product and enter recipient name")
+    
+    with sample_tab2:
+        st.subheader("Sample Distribution History")
+        
+        # Filters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            product_filter = st.text_input("Filter by Product")
+        with col2:
+            type_filter = st.multiselect("Filter by Type", ["trade", "media", "internal", "marketing"])
+        with col3:
+            date_range = st.selectbox("Date Range", ["All Time", "Last 30 Days", "Last 90 Days", "This Year"])
+        
+        # Get sample distributions
+        samples = list(db["sample_distributions"].rows)
+        
+        # Apply filters
+        if product_filter:
+            samples = [s for s in samples if product_filter.lower() in s.get("product_name", "").lower()]
+        if type_filter:
+            samples = [s for s in samples if s.get("recipient_type") in type_filter]
+        
+        # Date filter
+        if date_range != "All Time":
+            cutoff_date = datetime.now()
+            if date_range == "Last 30 Days":
+                cutoff_date -= pd.Timedelta(days=30)
+            elif date_range == "Last 90 Days":
+                cutoff_date -= pd.Timedelta(days=90)
+            elif date_range == "This Year":
+                cutoff_date = datetime(datetime.now().year, 1, 1)
+            
+            samples = [s for s in samples if datetime.strptime(s.get("distribution_date"), "%Y-%m-%d") >= cutoff_date]
+        
+        # Sort by date descending
+        samples = sorted(samples, key=lambda x: x.get("distribution_date", ""), reverse=True)
+        
+        if samples:
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                total_units = sum([s.get("quantity_units", 0) for s in samples])
+                st.metric("Total Units Distributed", f"{total_units:,}")
+            with col2:
+                total_cases = sum([s.get("quantity_cases", 0) for s in samples])
+                st.metric("Total Cases", f"{total_cases:.1f}")
+            with col3:
+                total_cogs = sum([s.get("cogs_amount", 0) for s in samples])
+                st.metric("Total COGS", f"${total_cogs:,.2f}")
+            with col4:
+                st.metric("Distributions", len(samples))
+            
+            # Display samples
+            st.markdown("### Sample Distributions")
+            samples_data = []
+            for s in samples:
+                samples_data.append({
+                    "Date": s.get("distribution_date"),
+                    "Product": s.get("product_name"),
+                    "Units": s.get("quantity_units"),
+                    "Cases": f"{s.get('quantity_cases', 0):.2f}",
+                    "Recipient": s.get("recipient_name"),
+                    "Type": s.get("recipient_type", "").upper(),
+                    "Event": s.get("event_name", ""),
+                    "COGS": f"${s.get('cogs_amount', 0):.2f}",
+                    "Notes": s.get("notes", "")[:50]
+                })
+            
+            st.dataframe(pd.DataFrame(samples_data), width="stretch", hide_index=True)
+            
+            # Export option
+            if st.button("Export to CSV"):
+                df = pd.DataFrame(samples_data)
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "Download samples.csv",
+                    csv,
+                    "sample_distributions.csv",
+                    "text/csv"
+                )
+        else:
+            st.info("No sample distributions found matching filters.")
+    
+    with sample_tab3:
+        st.subheader("Sample Reports & Analytics")
+        
+        # Get all samples
+        all_samples = list(db["sample_distributions"].rows)
+        
+        if all_samples:
+            # By Product
+            st.markdown("### 📊 Samples by Product")
+            product_summary = {}
+            for s in all_samples:
+                product = s.get("product_name", "Unknown")
+                if product not in product_summary:
+                    product_summary[product] = {"units": 0, "cogs": 0.0, "count": 0}
+                product_summary[product]["units"] += s.get("quantity_units", 0)
+                product_summary[product]["cogs"] += s.get("cogs_amount", 0.0)
+                product_summary[product]["count"] += 1
+            
+            product_data = []
+            for product, data in product_summary.items():
+                product_data.append({
+                    "Product": product,
+                    "Total Units": data["units"],
+                    "Total Cases": f"{data['units'] / UNITS_PER_CASE:.1f}",
+                    "Distributions": data["count"],
+                    "Total COGS": f"${data['cogs']:.2f}"
+                })
+            st.dataframe(pd.DataFrame(product_data), width="stretch", hide_index=True)
+            
+            # By Recipient Type
+            st.markdown("### 📊 Samples by Recipient Type")
+            type_summary = {}
+            for s in all_samples:
+                rec_type = s.get("recipient_type", "unknown").upper()
+                if rec_type not in type_summary:
+                    type_summary[rec_type] = {"units": 0, "cogs": 0.0, "count": 0}
+                type_summary[rec_type]["units"] += s.get("quantity_units", 0)
+                type_summary[rec_type]["cogs"] += s.get("cogs_amount", 0.0)
+                type_summary[rec_type]["count"] += 1
+            
+            type_data = []
+            for rec_type, data in type_summary.items():
+                type_data.append({
+                    "Type": rec_type,
+                    "Total Units": data["units"],
+                    "Distributions": data["count"],
+                    "Total COGS": f"${data['cogs']:.2f}"
+                })
+            st.dataframe(pd.DataFrame(type_data), width="stretch", hide_index=True)
+            
+            # Monthly trend
+            st.markdown("### 📈 Monthly Sample Distribution Trend")
+            monthly = {}
+            for s in all_samples:
+                date_str = s.get("distribution_date", "")
+                if date_str:
+                    month_key = date_str[:7]  # YYYY-MM
+                    if month_key not in monthly:
+                        monthly[month_key] = {"units": 0, "cogs": 0.0}
+                    monthly[month_key]["units"] += s.get("quantity_units", 0)
+                    monthly[month_key]["cogs"] += s.get("cogs_amount", 0.0)
+            
+            if monthly:
+                monthly_data = []
+                for month, data in sorted(monthly.items()):
+                    monthly_data.append({
+                        "Month": month,
+                        "Units Distributed": data["units"],
+                        "COGS": f"${data['cogs']:.2f}"
+                    })
+                st.dataframe(pd.DataFrame(monthly_data), width="stretch", hide_index=True)
+        else:
+            st.info("No sample distributions recorded yet.")
 
 elif page == "🔍 Physical Counts & Waste":
     st.header("🔍 Physical Inventory Counts & Waste Tracking")
@@ -3621,7 +5078,7 @@ elif page == "🔍 Physical Counts & Waste":
                 with col1:
                     adjust_inventory = st.checkbox("Adjust system inventory to match physical count", value=False)
                 with col2:
-                    if st.form_submit_button("💾 Save Physical Count", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 Save Physical Count", type="primary", width="stretch"):
                         # Save all counts
                         for count in count_data:
                             db["physical_inventory_counts"].insert({
@@ -3683,7 +5140,7 @@ elif page == "🔍 Physical Counts & Waste":
                             })
                     
                     if display_data:
-                        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(display_data), width="stretch", hide_index=True)
                     else:
                         st.info("No variances found - all counts matched system!")
         else:
@@ -3742,7 +5199,7 @@ elif page == "🔍 Physical Counts & Waste":
                 with col1:
                     adjust_inv = st.checkbox("Adjust system inventory to match count", value=False, key="adjust_inv")
                 with col2:
-                    if st.form_submit_button("💾 Save Inventory Count", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 Save Inventory Count", type="primary", width="stretch"):
                         for count in inv_count_data:
                             db["inventory_physical_counts_raw"].insert({
                                 "count_date": count_date_inv.strftime("%Y-%m-%d"),
@@ -3792,7 +5249,7 @@ elif page == "🔍 Physical Counts & Waste":
                             "Variance %": f"{c['variance_percentage']:+.2f}%",
                             "Notes": c['notes'] or "—"
                         } for c in variance_items]
-                        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(display_data), width="stretch", hide_index=True)
                     else:
                         st.info("Perfect match - no variances!")
         else:
@@ -3849,7 +5306,7 @@ elif page == "🔍 Physical Counts & Waste":
             
             waste_df = pd.DataFrame(waste_summary)
             waste_df = waste_df.sort_values("Total Variance", key=lambda x: x.str.replace('+', '').astype(int))
-            st.dataframe(waste_df, use_container_width=True, hide_index=True)
+            st.dataframe(waste_df, width="stretch", hide_index=True)
             
             # Waste trend chart
             st.markdown("#### Variance Trend Over Time")
@@ -3899,6 +5356,379 @@ elif page == "🔍 Physical Counts & Waste":
                     mime="text/csv"
                 )
 
+elif page == "💵 Financial Reports":
+    st.header("💵 Financial Reports & Analysis")
+    st.caption("Comprehensive financial analytics, profitability analysis, and cost tracking")
+    
+    db = get_db()
+    
+    # Create tabs for different financial reports
+    fin_tab1, fin_tab2, fin_tab3, fin_tab4, fin_tab5 = st.tabs([
+        "📊 P&L Statement", 
+        "💰 Profitability Analysis", 
+        "📦 Inventory Valuation",
+        "📈 Cost Trends",
+        "🧾 Tax Deduction Summary"
+    ])
+    
+    with fin_tab1:
+        st.subheader("Profit & Loss Statement")
+        
+        # Date range selector
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", value=(datetime.now() - pd.Timedelta(days=90)).date())
+        with col2:
+            end_date = st.date_input("End Date", value=datetime.now().date())
+        
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        # Revenue from invoices
+        invoices = list(db.execute(
+            "SELECT * FROM invoices WHERE invoice_date >= ? AND invoice_date <= ? AND status = 'paid'",
+            [start_str, end_str]
+        ).fetchall())
+        
+        total_revenue = sum([inv.get("subtotal", 0) for inv in invoices])
+        
+        # COGS from invoice items
+        total_invoice_cogs = 0.0
+        for inv in invoices:
+            items = list(db.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", [inv["id"]]).fetchall())
+            total_invoice_cogs += sum([item.get("line_cogs", 0) for item in items])
+        
+        # Sample costs (operating expense)
+        samples = list(db.execute(
+            "SELECT * FROM sample_distributions WHERE distribution_date >= ? AND distribution_date <= ?",
+            [start_str, end_str]
+        ).fetchall())
+        
+        sample_costs = sum([s.get("cogs_amount", 0) for s in samples])
+        
+        # Production overhead (from production history)
+        production = list(db.execute(
+            "SELECT * FROM production_history WHERE production_date >= ? AND production_date <= ?",
+            [start_str, end_str]
+        ).fetchall())
+        
+        total_labor = sum([p.get("labor_cost", 0) for p in production])
+        total_overhead = sum([p.get("overhead_cost", 0) for p in production])
+        
+        # Calculate totals
+        gross_profit = total_revenue - total_invoice_cogs
+        operating_expenses = sample_costs + total_labor + total_overhead
+        net_profit = gross_profit - operating_expenses
+        
+        # Display P&L
+        st.markdown("### Income Statement")
+        st.markdown(f"**Period:** {start_str} to {end_str}")
+        
+        # Create P&L table
+        pl_data = {
+            "Category": [
+                "Revenue",
+                "Cost of Goods Sold",
+                "Gross Profit",
+                "Operating Expenses:",
+                "  - Labor Costs",
+                "  - Overhead",
+                "  - Sample Costs",
+                "Total Operating Expenses",
+                "Net Profit Before Tax"
+            ],
+            "Amount": [
+                f"${total_revenue:,.2f}",
+                f"(${total_invoice_cogs:,.2f})",
+                f"${gross_profit:,.2f}",
+                "",
+                f"(${total_labor:,.2f})",
+                f"(${total_overhead:,.2f})",
+                f"(${sample_costs:,.2f})",
+                f"(${operating_expenses:,.2f})",
+                f"${net_profit:,.2f}"
+            ]
+        }
+        
+        st.table(pd.DataFrame(pl_data))
+        
+        # Key metrics
+        st.markdown("### Key Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            gross_margin = (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+            st.metric("Gross Margin", f"{gross_margin:.1f}%")
+        with col2:
+            net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
+            st.metric("Net Margin", f"{net_margin:.1f}%")
+        with col3:
+            st.metric("Total Revenue", f"${total_revenue:,.2f}")
+        with col4:
+            st.metric("Net Profit", f"${net_profit:,.2f}")
+    
+    with fin_tab2:
+        st.subheader("Product Profitability Analysis")
+        st.caption("Analyze profit margins by product to identify winners and losers")
+        
+        # Get all paid invoice items
+        all_invoices = list(db.execute("SELECT * FROM invoices WHERE status = 'paid'").fetchall())
+        
+        if all_invoices:
+            product_profits = {}
+            
+            for inv in all_invoices:
+                items = list(db.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", [inv["id"]]).fetchall())
+                
+                for item in items:
+                    product = item.get("product_name", "Unknown")
+                    if product not in product_profits:
+                        product_profits[product] = {
+                            "revenue": 0.0,
+                            "cogs": 0.0,
+                            "profit": 0.0,
+                            "cases_sold": 0.0
+                        }
+                    
+                    product_profits[product]["revenue"] += item.get("line_total", 0)
+                    product_profits[product]["cogs"] += item.get("line_cogs", 0)
+                    product_profits[product]["profit"] += item.get("line_profit", 0)
+                    product_profits[product]["cases_sold"] += item.get("quantity_cases", 0)
+            
+            # Create profitability table
+            profit_data = []
+            for product, data in product_profits.items():
+                margin = (data["profit"] / data["revenue"] * 100) if data["revenue"] > 0 else 0
+                profit_per_case = data["profit"] / data["cases_sold"] if data["cases_sold"] > 0 else 0
+                
+                profit_data.append({
+                    "Product": product,
+                    "Cases Sold": f"{data['cases_sold']:.1f}",
+                    "Revenue": f"${data['revenue']:,.2f}",
+                    "COGS": f"${data['cogs']:,.2f}",
+                    "Gross Profit": f"${data['profit']:,.2f}",
+                    "Margin %": f"{margin:.1f}%",
+                    "Profit/Case": f"${profit_per_case:.2f}"
+                })
+            
+            # Sort by profit descending
+            profit_df = pd.DataFrame(profit_data)
+            profit_df["_sort"] = [float(p["Gross Profit"].replace("$", "").replace(",", "")) for p in profit_data]
+            profit_df = profit_df.sort_values("_sort", ascending=False).drop("_sort", axis=1)
+            
+            st.dataframe(profit_df, width="stretch", hide_index=True)
+            
+            # Highlight best and worst performers
+            if len(profit_data) > 0:
+                sorted_by_margin = sorted(profit_data, key=lambda x: float(x["Margin %"].replace("%", "")), reverse=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success(f"🏆 **Best Margin:** {sorted_by_margin[0]['Product']} ({sorted_by_margin[0]['Margin %']})")
+                with col2:
+                    if len(sorted_by_margin) > 1:
+                        st.warning(f"📉 **Lowest Margin:** {sorted_by_margin[-1]['Product']} ({sorted_by_margin[-1]['Margin %']})")
+        else:
+            st.info("No sales data available yet. Create and fulfill invoices to see profitability analysis.")
+    
+    with fin_tab3:
+        st.subheader("Inventory Valuation Report")
+        st.caption("Current inventory value at cost (FIFO method)")
+        
+        # Update cost values first
+        update_inventory_cost_values(db)
+        update_bulk_spirit_cost_values(db)
+        
+        # Finished Goods valuation
+        st.markdown("### Finished Goods")
+        finished_goods = list(db["finished_goods"].rows)
+        
+        fg_value_data = []
+        total_fg_value = 0.0
+        
+        for fg in finished_goods:
+            total_cases = (fg["singles"] + fg["bottled_s"] * UNITS_PER_CASE + fg["bottled_i"] * UNITS_PER_CASE) / UNITS_PER_CASE
+            cost_per_case = fg.get("cost_per_case", 0.0)
+            total_value = total_cases * cost_per_case
+            total_fg_value += total_value
+            
+            fg_value_data.append({
+                "Product": fg["name"],
+                "Cases on Hand": f"{total_cases:.1f}",
+                "Cost per Case": f"${cost_per_case:.2f}",
+                "Total Value": f"${total_value:,.2f}"
+            })
+        
+        st.dataframe(pd.DataFrame(fg_value_data), width="stretch", hide_index=True)
+        st.metric("Total Finished Goods Value", f"${total_fg_value:,.2f}")
+        
+        # Bulk Spirits valuation
+        st.markdown("### Bulk Spirits")
+        bulk_spirits = list(db["bulk_spirits"].rows)
+        
+        bs_value_data = []
+        total_bs_value = 0.0
+        
+        for spirit in bulk_spirits:
+            gallons = spirit.get("wine_gallons", 0.0)
+            cost_per_gal = spirit.get("avg_cost_per_gallon", 0.0)
+            total_value = gallons * cost_per_gal
+            total_bs_value += total_value
+            
+            bs_value_data.append({
+                "Spirit": spirit["name"],
+                "Wine Gallons": f"{gallons:.2f}",
+                "Cost per Gallon": f"${cost_per_gal:.2f}",
+                "Total Value": f"${total_value:,.2f}"
+            })
+        
+        st.dataframe(pd.DataFrame(bs_value_data), width="stretch", hide_index=True)
+        st.metric("Total Bulk Spirits Value", f"${total_bs_value:,.2f}")
+        
+        # Inventory items valuation
+        st.markdown("### Inventory Items (Bottles, Labels, etc.)")
+        inventory_items = list(db["inventory_tracking"].rows)
+        
+        inv_value_data = []
+        total_inv_value = 0.0
+        
+        for item in inventory_items:
+            units = item.get("units_remaining", 0)
+            cost_per_unit = item.get("avg_cost_per_unit", 0.0)
+            total_value = units * cost_per_unit
+            total_inv_value += total_value
+            
+            if total_value > 0:  # Only show items with value
+                inv_value_data.append({
+                    "Item": item["item_name"],
+                    "Units": f"{units:,}",
+                    "Cost per Unit": f"${cost_per_unit:.4f}",
+                    "Total Value": f"${total_value:,.2f}"
+                })
+        
+        if inv_value_data:
+            st.dataframe(pd.DataFrame(inv_value_data), width="stretch", hide_index=True)
+        st.metric("Total Inventory Items Value", f"${total_inv_value:,.2f}")
+        
+        # Grand total
+        st.markdown("---")
+        grand_total = total_fg_value + total_bs_value + total_inv_value
+        st.markdown(f"## **Total Inventory Asset Value: ${grand_total:,.2f}**")
+    
+    with fin_tab4:
+        st.subheader("Cost Trends Over Time")
+        st.caption("Track how material costs change over time for budgeting")
+        
+        # Get purchase history for key items
+        st.markdown("### Recent Purchase Prices")
+        
+        # Get recent POs
+        recent_pos = list(db.execute(
+            "SELECT * FROM purchase_orders WHERE status = 'received' ORDER BY order_date DESC LIMIT 10"
+        ).fetchall())
+        
+        if recent_pos:
+            for po in recent_pos:
+                with st.expander(f"**{po['po_number']}** - {po['supplier_name']} | {po['order_date']}"):
+                    items = list(db.execute("SELECT * FROM purchase_order_items WHERE po_id = ?", [po["id"]]).fetchall())
+                    
+                    items_data = []
+                    for item in items:
+                        items_data.append({
+                            "Item": item["item_name"],
+                            "Quantity": f"{item['quantity']:.1f}",
+                            "Unit Cost": f"${item['unit_cost']:.2f}",
+                            "Total": f"${item['total_cost']:.2f}"
+                        })
+                    
+                    st.dataframe(pd.DataFrame(items_data), width="stretch", hide_index=True)
+        else:
+            st.info("No purchase orders completed yet. Receive items from POs to track cost trends.")
+        
+        # Alert for significant cost changes
+        st.markdown("### Cost Change Alerts")
+        st.info("💡 Track your top materials and compare recent purchase prices to historical averages to identify cost increases.")
+    
+    with fin_tab5:
+        st.subheader("Tax Deduction Summary")
+        st.caption("Track deductible expenses for tax reporting")
+        
+        # Date range
+        col1, col2 = st.columns(2)
+        with col1:
+            tax_start = st.date_input("Start Date", value=datetime(datetime.now().year, 1, 1).date(), key="tax_start")
+        with col2:
+            tax_end = st.date_input("End Date", value=datetime.now().date(), key="tax_end")
+        
+        tax_start_str = tax_start.strftime("%Y-%m-%d")
+        tax_end_str = tax_end.strftime("%Y-%m-%d")
+        
+        # Material purchases
+        pos = list(db.execute(
+            "SELECT * FROM purchase_orders WHERE order_date >= ? AND order_date <= ? AND status = 'received'",
+            [tax_start_str, tax_end_str]
+        ).fetchall())
+        
+        total_material_purchases = sum([po.get("total_amount", 0) for po in pos])
+        
+        # Production costs
+        production = list(db.execute(
+            "SELECT * FROM production_history WHERE production_date >= ? AND production_date <= ?",
+            [tax_start_str, tax_end_str]
+        ).fetchall())
+        
+        total_prod_labor = sum([p.get("labor_cost", 0) for p in production])
+        total_prod_overhead = sum([p.get("overhead_cost", 0) for p in production])
+        
+        # Sample costs (marketing expense)
+        samples = list(db.execute(
+            "SELECT * FROM sample_distributions WHERE distribution_date >= ? AND distribution_date <= ?",
+            [tax_start_str, tax_end_str]
+        ).fetchall())
+        
+        total_sample_cost = sum([s.get("cogs_amount", 0) for s in samples])
+        
+        # Display summary
+        st.markdown(f"### Deductible Expenses: {tax_start_str} to {tax_end_str}")
+        
+        deduction_data = {
+            "Category": [
+                "Material Purchases",
+                "Production Labor",
+                "Production Overhead",
+                "Sample/Marketing Costs",
+                "Total Deductible Expenses"
+            ],
+            "Amount": [
+                f"${total_material_purchases:,.2f}",
+                f"${total_prod_labor:,.2f}",
+                f"${total_prod_overhead:,.2f}",
+                f"${total_sample_cost:,.2f}",
+                f"${total_material_purchases + total_prod_labor + total_prod_overhead + total_sample_cost:,.2f}"
+            ],
+            "Description": [
+                "Cost of bottles, labels, ingredients, etc.",
+                "Direct labor costs for production",
+                "Utilities, equipment, facility costs",
+                "Samples given for marketing/trade",
+                ""
+            ]
+        }
+        
+        st.table(pd.DataFrame(deduction_data))
+        
+        # Export option
+        if st.button("Export Tax Summary"):
+            df = pd.DataFrame(deduction_data)
+            csv = df.to_csv(index=False)
+            st.download_button(
+                "Download tax_deductions.csv",
+                csv,
+                f"tax_deductions_{tax_start_str}_to_{tax_end_str}.csv",
+                "text/csv"
+            )
+        
+        st.info("💡 **Note:** Consult with your accountant or tax advisor for proper categorization and reporting of these expenses.")
+
 elif page == "💼 CRM/Sales":
     st.header("💼 CRM / Sales Management")
     
@@ -3913,7 +5743,7 @@ elif page == "💼 CRM/Sales":
         # Item management buttons (outside form)
         col1, col2 = st.columns([1, 4])
         with col1:
-            if st.button("➕ Add Item", use_container_width=True):
+            if st.button("➕ Add Item", width="stretch"):
                 st.session_state.order_items.append({"product": "", "quantity": 1})
                 st.rerun()
         
@@ -3946,7 +5776,7 @@ elif page == "💼 CRM/Sales":
                     )
                     st.session_state.order_items[i]["quantity"] = quantity
                 with col3:
-                    if st.button("🗑️", key=f"remove_item_{i}", help="Remove", use_container_width=True):
+                    if st.button("🗑️", key=f"remove_item_{i}", help="Remove", width="stretch"):
                         st.session_state.order_items.pop(i)
                         st.rerun()
         
@@ -3960,7 +5790,7 @@ elif page == "💼 CRM/Sales":
             
             status = st.selectbox("Status", ["Pending", "Paid", "Shipped", "Delivered"])
             
-            if st.form_submit_button("💾 Create Order", type="primary", use_container_width=True):
+            if st.form_submit_button("💾 Create Order", type="primary", width="stretch"):
                 if customer_name and any(item["product"] for item in st.session_state.order_items):
                     # Calculate total revenue
                     total_revenue = 0.0
@@ -4125,6 +5955,6 @@ elif page == "💼 CRM/Sales":
             })
         
         df = pd.DataFrame(summary_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.info("No orders found in the database.")
